@@ -1,5 +1,5 @@
 # Record Something
 ## Science Writing
-+ [Benchmarking Crimes](https://lrg11.github.io/Gernot's List of Systems Benchmarking Crimes.pdf)
++ [Benchmarking Crimes](https://github.com/lrg11/lrg11.github.io/blob/3e2592f7af64499f57829708227da09b9ba5e45c/Gernot's%20List%20of%20Systems%20Benchmarking%20Crimes.pdf)
 ## ATC50
 + [Geo](https://lrg11.github.io/geo_world.html)
