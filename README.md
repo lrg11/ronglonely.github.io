@@ -1,5 +1,5 @@
-# lrg11.github.io
-CS50 
-## HW 1
-+ Desc
+# Record Something
+## Science Writing
++ [Benchmarking Crimes](https://lrg11.github.io/benchmarking_crimes.html
+## ATC50
 + [Geo](https://lrg11.github.io/geo_world.html)
