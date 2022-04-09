@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+	<title></title>
+	<meta name="generator" content="LibreOffice 7.2.5.2 (Linux)"/>
+	<meta name="created" content="00:00:00"/>
+	<meta name="changed" content="00:00:00"/>
+	<style type="text/css">
+		@page { size: 8.5in 11in; margin: 0.79in }
+		p { line-height: 115%; margin-bottom: 0.1in; background: transparent }
+		pre { font-family: "Liberation Mono", monospace; font-size: 10pt; background: transparent }
+	</style>
+</head>
+<body lang="en-US" link="#000080" vlink="#800000" dir="ltr"><pre># Combining branch predictors
+
+## <span lang="zh-CN">摘要</span>
+
+<span lang="zh-CN">决定计算机性能的关键因素之一是实现在多大程度上可以利用指令级并行性。这种并行性最关键的限制可能是有条件分支的存在，这些分支决定了下一步需要执行哪些指令。为了提高并行性，几位作者提出了使用硬件预测条件分支方向的方法，这些硬件使用了以前分支的历史。不同的预测器利用了分支行为中不同的观察模式。本文提出了一种结合这些不同类型预测器优点的方法。新方法使用历史机制来跟踪每个分支的哪个预测器最准确，以便使用最准确的预测器。此外，本文还描述了一种通过将分支历史与分支地址散列在一起来提高分支历史有用性的方法。总之，这些新技术在最大预测精度和给定预测器大小的预测精度方面都优于以前已知的方法。具体来说，预测准确率达到</span>98.1%<span lang="zh-CN">，而之前已知的最准确方法的准确率为</span>97.1%<span lang="zh-CN">。此外，对于给定的预测精度，这种新方法通常至少比其他方案小两倍。最后，这种新方法允许具有单级历史数组的预测器在除最大预测器大小外的所有情况下都优于具有多个历史级别的方案。</span>
+
+## 1. <span lang="zh-CN">介绍</span>
+
+<span lang="zh-CN">为了寻求更高级别的性能，最近的机器设计利用了越来越高的指令级并行度。例如，超标量和超级流水线技术都变得越来越流行。有了这两种技术，分支指令在决定机器整体性能方面变得越来越重要。随着超标量和超级流水线的使用增加，这种趋势可能会继续下去，尤其是在投机执行变得流行的情况下。</span>
+
+<span lang="zh-CN">此外，在早期的</span>RISC<span lang="zh-CN">设计中，一些用于最小化分支成本的编译器辅助技术变得越来越不合适。特别是，随着要填充的延迟时隙数量的增加，延迟分支的有效性逐渐降低。此外，具有不同超标量或超级流水线选择的体系结构的多个实现使得延迟槽的使用有问题</span>[Sit93]<span lang="zh-CN">。总之，这些趋势增加了降低分支成本的硬件方法的重要性。</span>
+
+<span lang="zh-CN">分支性能问题可分为两个子问题。首先，需要预测分支方向。其次，对于执行的分支，来自分支目标的指令必须能够以最小的延迟执行。快速提供目标指令的一种方法是使用分支目标缓冲区，这是一种特殊的指令缓存，用于存储目标指令。本文主要研究分支方向的预测。将不讨论可用于提供目标指令的替代方案。读者可参考</span>Lee  and  Smith[LS84]<span lang="zh-CN">了解更多信息。</span>
+
+<span lang="zh-CN">硬件分支预测策略已被广泛研究。最著名的技术，这里称为双峰分支预测，根据分支在最后几次执行时的方向进行预测。最近的研究表明，利用更多分支历史可以做出更准确的预测。一种方法是独立地考虑每个分支的历史，并利用重复模式。由于历史是独立的，我们将其称为局部分支预测。另一种技术使用所有最近分支的组合历史来进行预测。这种技术将被称为全局分支预测。每种不同的分支预测策略都有不同的优势。当每个分支在特定方向上都有强烈的偏压时，双峰技术可以很好地工作。局部技术适用于具有简单重复模式的分支。当顺序执行的分支所采取的方向高度相关时，全局技术尤其有效。</span>
+
+<span lang="zh-CN">本文介绍了一种新技术，该技术可以将不同分支预测器的独特优势结合起来。该技术使用多个分支预测器，并选择对每个分支表现最好的一个。这种方法比任何一个单独的预测方法都能提供更准确的预测。本文还展示了一种通过将分支历史与分支地址散列在一起来提高其效用的方法。</span>
+
+<span lang="zh-CN">本文的组织结构如下。首先，第</span>2<span lang="zh-CN">节讨论了分支预测方面的先前工作。后面的章节详细描述了组合使用的预测方法，并将对其进行定量评估，为评估新技术提供依据。第</span>3<span lang="zh-CN">、</span>4<span lang="zh-CN">和</span>5<span lang="zh-CN">节回顾了双峰、局部和全局预测。第</span>6<span lang="zh-CN">节讨论了由全局历史记录和分支地址信息索引的预测器。第</span>7<span lang="zh-CN">节讨论在为预测器编制索引之前对全局历史记录和分支地址信息进行哈希处理。第</span>8<span lang="zh-CN">节描述了组合多个预测器的技术。第</span>9<span lang="zh-CN">节给出了一些结论。第</span>10<span lang="zh-CN">节给出了未来工作的一些建议。最后，附录</span>A<span lang="zh-CN">给出了一些与局部预测方法变化的额外比较</span>
+
+## 2.<span lang="zh-CN">相关工作</span>
+
+<span lang="zh-CN">分支机构的绩效问题已经得到了广泛的研究。</span>J.E.Smith[Smi81]<span lang="zh-CN">提出了几种用于预测分支方向的硬件方案，包括将在第</span>3<span lang="zh-CN">节中描述的双峰方案。</span>Lee<span lang="zh-CN">和</span>A.J.Smith[LS84]<span lang="zh-CN">评估了几种分支预测方案。此外，他们还展示了如何使用分支目标缓冲区来减少执行分支时通常遇到的流水线延迟。</span>McFarling<span lang="zh-CN">和</span>Hennessy[MH86]<span lang="zh-CN">比较了降低分支成本的各种硬件和软件方法，包括使用配置文件信息。</span>Hwu<span lang="zh-CN">、</span>Conte<span lang="zh-CN">和</span>Chang[HCC89]<span lang="zh-CN">对更大范围的流水线长度进行了类似的研究。</span>Fisher<span lang="zh-CN">和</span>Freudenberger[FF92]<span lang="zh-CN">研究了在不同的程序运行过程中配置文件信息的稳定性。</span>Yeh<span lang="zh-CN">和</span>Patt[YP92<span lang="zh-CN">，</span>YP93]<span lang="zh-CN">描述了局部和全局分支预测方案。</span>Pan<span lang="zh-CN">、</span>So<span lang="zh-CN">和</span>Rahmeh[PSR92]<span lang="zh-CN">描述了如何在一个预测器中同时使用全局历史和分支地址信息。</span>Ball and Larus[BL93]<span lang="zh-CN">描述了几种在编译时使用静态信息猜测最常见分支方向的技术。有几项研究</span>[Wal91<span lang="zh-CN">、</span>JW89<span lang="zh-CN">、</span>LW93]<span lang="zh-CN">研究了分支对可用指令级并行性的影响。这些研究表明，分支预测误差是决定可利用的局部并行性数量的关键因素。 </span>
+
+## 3.<span lang="zh-CN">双峰分支预测</span>
+
+<span lang="zh-CN">典型分支的行为远非随机。大多数分支要么通常跳转，要么通常不跳转。双峰分支预测利用分支行为的这种双峰分布，并试图区分通常转移的分支和通常不转移的分支。有很多方法可以做到这一点。也许最简单的方法如图</span>1<span lang="zh-CN">所示。该图显示了由程序计数器中的低位地址位索引的计数器表。每个计数器有两位长。对于每个执行的分支，相应的计数器都会递增。同样，对于每个未执行的分支，相应的计数器也会递减。此外，计数器是饱和（</span>saturating<span lang="zh-CN">）。换言之，计数器不会递减超过零，也不会递增超过三。最高有效位决定预测。重复转移的分支将被预测为转移，并且反复未转移的分支将被预测为未转移。通过使用一个</span>2<span lang="zh-CN">位计数器，预测器可以容忍一个分支一次朝着一个不寻常的方向移动，并继续预测通常的转移方向。</span>
+
+<span lang="zh-CN">对于大型计数器表，每个分支将映射到一个唯一的计数器。对于较小的表，多个分支可能共享同一计数器，导致预测精度降低。另一种实现方法是为每个计数器存储一个标记（</span>tag<span lang="zh-CN">），并使用一组组相联查找将计数器与分支匹配。对于固定数量的计数器，组相联表具有更好的性能。然而，一旦考虑到标签的大小，一个简单的计数器数组对于给定的预测器大小通常具有更好的性能。如果已经需要这些标记来支持分支目标缓存，则不会出现这种情况。</span>
+
+<span lang="zh-CN">为了比较各种分支预测策略，我们将使用</span>SPEC'89<span lang="zh-CN">基准</span>[SPE90]<span lang="zh-CN">，如图</span>2<span lang="zh-CN">所示。这些基准测试包括符号和数字应用的混合。然而，为了限制模拟时间，只模拟了每个基准测试的前</span>1000<span lang="zh-CN">万条指令。使用</span>pixie<span lang="zh-CN">追踪设备</span>[Kil86<span lang="zh-CN">，</span>Smi91]<span lang="zh-CN">在</span>DECstation 5000<span lang="zh-CN">上获得了执行痕迹。最后，所有计数器最初都设置为之前的所有分支都是转移的。</span>
+
+![image-20220330105759690](https://gitee.com/LonleyRong/markdown-pictures/raw/master/img/202203301058820.png)
+
+<span lang="zh-CN">图</span>3<span lang="zh-CN">显示了双峰预测的平均条件分支预测精度。绘制的数字是</span>SPEC'89<span lang="zh-CN">基准测试的平均精度，每个基准测试模拟</span>1000<span lang="zh-CN">万条指令。由于随着计数器数量的增加，共享计数器的分支越来越少，因此精度会随着预测器的大小而增加。然而，一旦每个分支映射到一个唯一的计数器，预测精度就会饱和，达到</span>93.5%<span lang="zh-CN">的正确率。一个组相联预测器将以相同的精度饱和。 </span>
+
+## 4. <span lang="zh-CN">局部分支预测</span>
+
+<span lang="zh-CN">改进双峰预测的一种方法是认识到许多分支执行重复模式。这种行为最常见的例子可能是循环控制分支。考虑下面的例子：对于</span>
+
+for<span lang="zh-CN">（</span>i<span lang="zh-CN">＝</span>1<span lang="zh-CN">；</span>i  &lt;<span lang="zh-CN">＝</span>4<span lang="zh-CN">；</span>i++<span lang="zh-CN">）</span>{}
+
+<span lang="zh-CN">如果在正文的末尾进行循环测试，则相应的分支将执行模式 </span>(1110)[^n]<span lang="zh-CN">，其中</span>1<span lang="zh-CN">和</span>0<span lang="zh-CN">分别表示并没有采取，</span>n<span lang="zh-CN">是执行循环的次数。显然，如果我们知道这个分支在前三次执行中的方向，那么我们总是能够预测下一个分支的方向。</span>
+
+<span lang="zh-CN">图</span>4<span lang="zh-CN">显示了一种分支预测方法，该方法接近</span>Yeh<span lang="zh-CN">和</span>Patt[YP92]<span lang="zh-CN">开发的方法，可以利用这种模式。该图显示了使用两个表的分支预测器。第一个表记录了最近分支的历史。这张表有许多不同的组织。在本文中，我们将假设它只是一个由分支地址的低位索引的数组。</span>Yeh<span lang="zh-CN">和</span>Patt<span lang="zh-CN">假设了一个组相联的分支历史表。与双模预测一样，一个简单的数组避免了存储标签的需要，但当多个分支映射到同一个表条目时，性能确实会下降，尤其是在表大小较小的情况下。</span>
+
+<span lang="zh-CN">每个历史表条目都记录了地址映射到该条目的最近</span>n<span lang="zh-CN">个分支的方向，其中</span>n<span lang="zh-CN">是条目的长度（以</span>bit<span lang="zh-CN">为单位）。第二个表是一个</span>2<span lang="zh-CN">位计数器数组，与用于双模分支预测的计数器相同。但是，在这里，它们由存储在第一个表中的分支历史记录索引。在本文中，这种方法被称为局部分支预测，因为使用的历史是当前分支的局部。在</span>Yeh<span lang="zh-CN">和</span>Patt<span lang="zh-CN">的术语中，这种方法被称为按地址方案。</span>
+
+<span lang="zh-CN">再次考虑上面的简单循环示例。假设这是程序中唯一的分支。在这种情况下，将有一个仅存储此分支历史的历史记录表条目，计数器表将仅反映此分支的行为。有了</span>3<span lang="zh-CN">位历史记录和</span>23<span lang="zh-CN">个计数器，本地分支预测器将能够确定当前迭代，并在计数器值的一些初始设置之后始终做出正确的预测。如果程序中有更多分支，局部预测器可能会遇到两种争用。首先，分支历史可能反映映射到每个历史条目的所有分支的历史的混合。其次，由于所有分支只有一个计数器数组，因此模式之间可能存在冲突。例如，如果有另一个分支通常执行模式（</span>0110<span lang="zh-CN">）</span>n<span lang="zh-CN">而不是（</span>1110<span lang="zh-CN">）</span>n<span lang="zh-CN">，那么当分支历史记录为（</span>110<span lang="zh-CN">）时，将存在争用。然而，使用</span>4<span lang="zh-CN">位历史记录和</span>24<span lang="zh-CN">个计数器，可以避免这种争用。然而，请注意，如果第一个模式执行了大量次，然后第二个模式执行了大量次，那么只需要</span>3<span lang="zh-CN">位历史记录，因为计数器会动态地调整到最近的模式。 </span>
+
+<span lang="zh-CN">图</span>5<span lang="zh-CN">显示了作为预测器大小函数的局部分支预测的性能。为简单起见，我们假设历史记录和计数数组条目的数量相同。有关一些替代方案的讨论，请参见附录</span>A<span lang="zh-CN">。对于非常小的预测器，局部方案实际上比双峰方案差。如果对历史记录条目存在过度争用，则存储此历史记录没有任何价值。然而，在大约</span>128<span lang="zh-CN">字节以上，局部预测器的性能明显更好。对于大型预测，准确率接近</span>97.1%<span lang="zh-CN">的正确率，错误预测不到双峰方案的一半。</span>
+
+## 5.<span lang="zh-CN">全局分支预测</span>
+
+<span lang="zh-CN">在局部分支预测方案中，只考虑当前分支的模式。</span>Yeh<span lang="zh-CN">和</span>Patt[YP92]<span lang="zh-CN">提出的另一个方案能够利用最近的其他分支进行预测。这种方法的一个实现如图</span>6<span lang="zh-CN">所示。单移位寄存器</span>GR<span lang="zh-CN">记录最近</span>n<span lang="zh-CN">个条件分支的方向。由于分支历史对所有分支都是全局的，因此本文将这种策略称为全局分支预测。全局分支预测能够利用两种模式。首先，当前分支机构采取的方向可能在很大程度上取决于最近的其他分支机构。考虑下面的例子：</span>
+
+<span lang="zh-CN">（</span>x<span lang="zh-CN">＜</span>1<span lang="zh-CN">）：：（如果（</span>x<span lang="zh-CN">＞</span>1<span lang="zh-CN">）</span>
+
+<span lang="zh-CN">使用全局历史预测，我们能够根据第一个</span>IF<span lang="zh-CN">所取的方向对第二个</span>if<span lang="zh-CN">进行预测。如果（</span>x&lt;1<span lang="zh-CN">），我们就知道第二个</span>if<span lang="zh-CN">就不会发生。</span>
+
+ <span lang="zh-CN">如果（</span>x&gt;=1)<span lang="zh-CN">，我们就不知道这个分支会朝哪个方向发展，但概率很可能会朝一个方向或另一个方向倾斜。如果是这样的话，我们应该能够做出比没有关于</span>x<span lang="zh-CN">值的信息更好的预测。</span>Pan<span lang="zh-CN">和</span>Rahmeh[PSR92]<span lang="zh-CN">展示了</span>SPEC<span lang="zh-CN">基准测试中几个相邻分支的例子，这些分支的条件以这种方式相关。</span>
+
+<span lang="zh-CN">全局分支预测有效的第二种方法是复制局部分支预测的行为。当全局历史包括做出准确预测所需的所有本地历史时，就会发生这种情况。考虑这个例子：</span>
+
+for<span lang="zh-CN">（</span>j<span lang="zh-CN">＝</span>0<span lang="zh-CN">；</span>i<span lang="zh-CN">＜</span>100<span lang="zh-CN">；</span>i++<span lang="zh-CN">）（</span>j<span lang="zh-CN">＝</span>0<span lang="zh-CN">；</span>j<span lang="zh-CN">＜</span>3<span lang="zh-CN">；</span>j++<span lang="zh-CN">）</span>
+
+<span lang="zh-CN">在初始启动时间之后，条件分支具有以下行为，假设</span>GR<span lang="zh-CN">向左移动： </span>
+
+<span lang="zh-CN">在这里，全局历史可以区分两个分支中的哪一个正在执行，以及</span>j<span lang="zh-CN">的当前值。因此，这里的预测精度将与局部预测一样好。</span>
+
+<span lang="zh-CN">图</span>7<span lang="zh-CN">比较了全局预测与局部和双峰分支预测的性能。图中显示，对于固定大小的预测器，全局方案的有效性明显低于局部方案。它只比</span>1KB<span lang="zh-CN">以上的双峰方案好。</span>
+
+<span lang="zh-CN">通过查看计数器表索引的信息内容，我们可以直观地理解这种行为。对于较小的预测器，双峰方案相对较好。在这里，双模方案中使用的分支地址位可以有效地区分不同的分支。随着计数器数量翻倍，大约一半的分支将共享同一个计数器。非正式地说，我们可以说地址位的信息含量很高。对于大型计数器表来说，这不再是事实。随着更多计数器的添加，最终每个频繁分支将映射到一个唯一的计数器。因此，对于越来越大的计数器表，每个附加地址位中的信息内容都会下降到零。</span>
+
+<span lang="zh-CN">全局历史登记册的信息内容开始时相对较小，但随着规模的扩大，它会继续增长。要理解为什么，考虑一个特定分支执行时可能会想到的历史。由于每个分支</span>90%<span lang="zh-CN">以上的时间都是朝着同一个方向走的，所以之前分支的顺序和这些分支采取的方向对于任何一个分支来说都是高度重复的，但对于其他分支来说可能非常不同。这种行为允许全局预测器识别不同的分支。然而，正如图</span>7<span lang="zh-CN">所示，全局历史在这方面不如分支地址有效。另一方面，全局历史寄存器可以捕获更多信息，而不仅仅是识别哪个分支是当前分支，因此对于足够大的预测器，它比双峰预测做得更好。</span>
+
+## 6. <span lang="zh-CN">带索引选择的全局预测器</span>
+
+<span lang="zh-CN">如前一节所讨论的，全局历史信息在识别当前分支时的效率低于仅使用分支地址。这表明，可以同时使用分支地址和全局历史进行更有效的预测。潘、苏和拉赫梅</span>[PSR92]<span lang="zh-CN">提出了这样一个方案。他们的方法如图</span>8<span lang="zh-CN">所示。这里，计数器表通过全局历史和分支地址位的串联进行索引。</span>
+
+<span lang="zh-CN">使用选定地址位（</span>gselect<span lang="zh-CN">）进行全局预测的性能如图</span>9<span lang="zh-CN">所示。使用位选择方法时，需要在使用更多历史位或更多地址位之间进行权衡。对于具有</span>2k<span lang="zh-CN">个计数器的预测表，我们可以使用</span>1<span lang="zh-CN">到（</span>K-1<span lang="zh-CN">）个地址位。图</span>9<span lang="zh-CN">没有显示所有这些可能性，只显示了给定大小的预测器在基准测试中具有最佳精度的性能（</span>gselect  best<span lang="zh-CN">）。正如我们所预期的，</span>gselect<span lang="zh-CN">的性能最好，无论是双峰预测还是全局预测，因为两者本质上都是退化情况。对于较小的尺寸，</span>gselect<span lang="zh-CN">的最佳性能与双峰预测的性能相当。然而，一旦有足够的地址位来识别大多数分支，就会使用更多的全局历史位，从而显著提高效率</span>
+
+<span lang="zh-CN">对于小于</span>1KB<span lang="zh-CN">的预测器大小，</span>gselect  best<span lang="zh-CN">也优于局部预测。全局方案的优点是全局历史所需的存储空间可以忽略不计。此外，即使是更大的预测值，准确度也很接近。这尤其有趣，因为</span>gselect<span lang="zh-CN">只需要一个数组访问，而</span>local  prediction<span lang="zh-CN">需要两个数组顺序访问。这表明</span>gselect<span lang="zh-CN">预测器应该比本地预测器具有更少的延迟，并且更易于管道化。 </span>
+
+## 7.<span lang="zh-CN">全局历史与索引共享</span>
+
+<span lang="zh-CN">在全球预测的讨论中，我们描述了全球历史信息如何弱地识别当前分支。这表明</span>gselect<span lang="zh-CN">使用的计数器索引中存在大量冗余。如果有足够的地址位来识别分支，我们可以预期频繁的全局历史组合会相当稀疏。我们可以通过将分支地址和全局历史散列在一起来利用这种效果。特别是，我们可以期望将全球历史记录与分支地址异或，以拥有比任何一个组件都拥有更多信息。此外，由于使用了更多的地址位和全局历史位，因此有理由期待比</span>gselect<span lang="zh-CN">更好的预测。考虑下面的简单示例，其中只有两个分支，每个分支只有两个共同的全局历史：</span>
+
+![image-20220331090138319](https://gitee.com/LonleyRong/markdown-pictures/raw/master/img/202203310901425.png)
+
+<span lang="zh-CN">策略</span>gselect 4/4<span lang="zh-CN">将分支地址和全局历史的低位</span>4<span lang="zh-CN">位连接起来。我们将分支地址和全球历史作异或的策略称为</span>gshare<span lang="zh-CN">。策略</span>gshare 8/8<span lang="zh-CN">使用分支地址和全局历史记录的所有</span>8<span lang="zh-CN">位作的位异或。比较</span>gshare 8/8<span lang="zh-CN">和</span>gselect 4/4<span lang="zh-CN">表明，只有</span>gshare<span lang="zh-CN">能够区分所有四种情况。</span>gselect<span lang="zh-CN">预测器无法利用前四位中的区分历史。</span>
+
+<span lang="zh-CN">与</span>gselect<span lang="zh-CN">一样，我们可以选择使用比分支地址位更少的全局历史位。在这种情况下，全局历史位与高阶地址位进行异或运算。通常，高阶地址位比低阶地址位更稀疏。</span>
+
+<span lang="zh-CN">图</span>10<span lang="zh-CN">显示了</span>gshare<span lang="zh-CN">预测器的结构。图</span>11<span lang="zh-CN">比较了</span>gshare<span lang="zh-CN">和</span>gselect<span lang="zh-CN">的性能。图</span>11<span lang="zh-CN">仅显示了各种历史长度选择中的</span>gshare<span lang="zh-CN">预测器，这些选择在基准测试中具有最佳性能（</span>gshare  best<span lang="zh-CN">）。 对于</span>256<span lang="zh-CN">字节及以上的预测器大小，</span>gshare best<span lang="zh-CN">的性能略优于</span>gselect  best<span lang="zh-CN">。对于较小的预测值，</span>gshare<span lang="zh-CN">的表现不如</span>gselect<span lang="zh-CN">，因为不同分支之间已经存在太多的计数器争用，添加全局信息只会让情况变得更糟。 </span>
+
+## 8.<span lang="zh-CN">组合转移预测</span>
+
+<span lang="zh-CN">我们提出的不同分支预测方案具有不同的优点。一个自然的问题是，是否可以将不同的优势结合到一种新的分支预测方法中，以获得更好的预测精度。其中一种方法如图</span>12<span lang="zh-CN">所示。该组合预测器包含两个预测器</span>P1<span lang="zh-CN">和</span>P2<span lang="zh-CN">，它们可以是前面章节中讨论的预测器之一，也可以是任何类型的分支预测方法。此外，组合预测器还包含一个额外的计数器阵列，用于选择要使用的最佳预测器。和以前一样，我们将使用</span>2<span lang="zh-CN">位上</span>/<span lang="zh-CN">下饱和计数器。每个计数器跟踪共享该计数器的分支的哪个预测器更准确。具体地说，使用符号</span>P1c<span lang="zh-CN">和</span>P2c<span lang="zh-CN">分别表示预测器</span>P1<span lang="zh-CN">和</span>P2<span lang="zh-CN">是否正确，计数器通过</span>P1c-P2c<span lang="zh-CN">递增或递减，如下所示</span>
+
+<span lang="zh-CN">分支预测器的一个有用组合是双模</span>\/gshare<span lang="zh-CN">。在这种组合中，如果值得，可以使用全局信息，否则可以使用双峰方案预测的通常分支方向。这里，我们假设</span>gshare<span lang="zh-CN">使用相同数量的历史和地址位。这种假设使全局信息量最大化。稀释分支地址信息不太重要，因为总是可以使用双峰预测。同样，</span>gshare<span lang="zh-CN">在这方面的表现也明显优于</span>gselect<span lang="zh-CN">，因为它使用了更多的全局信息。图</span>13<span lang="zh-CN">显示了双模</span>\/gshare<span lang="zh-CN">组合如何在</span>SPEC'89<span lang="zh-CN">基准上工作。在这里，所有的基准测试都完成了。此外，每个预测器阵列都有</span>1K<span lang="zh-CN">个计数器。因此，组合预测值实际上是</span>3<span lang="zh-CN">倍大。如图所示，组合预测器总是比单独使用任何一个预测器都好。例如，使用</span>eqntott<span lang="zh-CN">，</span>gshare<span lang="zh-CN">比双模更有效，双模</span>\/gshare<span lang="zh-CN">与</span>gshare<span lang="zh-CN">的性能相匹配。图</span>14<span lang="zh-CN">显示了在这些相同的运行中，每种预测器在双模</span>\/gshare<span lang="zh-CN">组合预测器中使用的频率。对于这些尺寸，通常更频繁地使用双峰预测器。然而，对于</span>eqntott<span lang="zh-CN">而言，</span>gshare<span lang="zh-CN">预测器更常用。同样，预测因子的选择是逐支进行的。在任何一个基准测试中，许多分支可能使用双峰预测，而其他分支使用</span>gshare<span lang="zh-CN">。图</span>15<span lang="zh-CN">显示了使用双模</span>\/gshare<span lang="zh-CN">如何影响错误预测分支之间的指令数。对于一些基准，尤其是一些不太可预测的基准，如</span>gcc<span lang="zh-CN">，这种组合显著增加了这一指标。 </span>
+
+<span lang="zh-CN">图</span>16<span lang="zh-CN">显示了一系列预测器大小的组合预测器精度。如前所述，仅显示了针对</span>10M<span lang="zh-CN">指令运行的</span>SPEC'89<span lang="zh-CN">基准测试的平均精度。在此图表中，我们选择显示一个双峰</span>\/gshare<span lang="zh-CN">预测器，其中</span>gshare<span lang="zh-CN">阵列包含两倍的计数器（双模</span>\/gshareN+1<span lang="zh-CN">）。这允许与</span>gselect best<span lang="zh-CN">进行更直接的比较，因为总预测器大小是整数字节数。由于预测器选择阵列成本分摊到更多预测器计数器上，因此预测器双模</span>\/gshareN+1<span lang="zh-CN">的性能也稍好一些。双峰</span>\/gshareN+1<span lang="zh-CN">的性能明显优于</span>gselect best<span lang="zh-CN">。</span>1KB<span lang="zh-CN">组合预测器的性能与</span>16KB gselect best<span lang="zh-CN">预测器几乎相同。 </span>
+
+<span lang="zh-CN">图</span>16<span lang="zh-CN">还显示了组合本地</span>\/gshare<span lang="zh-CN">预测器的性能，其性能优于双模</span>\/gshare<span lang="zh-CN">。对于此绘图，所有本地</span>\/gshare<span lang="zh-CN">数组的条目数相同。对于</span>2KB<span lang="zh-CN">及更大的尺寸，本地</span>\/gshare<span lang="zh-CN">预测器比双模</span>\/gshareN+1<span lang="zh-CN">具有更好的精度。对于大型阵列，该精度接近</span>98.1%<span lang="zh-CN">的正确率。这一结果与我们预期的一样，因为大型局部预测器包含了双峰预测器可用的信息。</span>
+
+## 9.<span lang="zh-CN">结论</span>
+
+<span lang="zh-CN">在本文中，我们提出了两种提高分支预测性能的新方法。首先，我们展示了使用全局分支历史和分支地址的位异或来访问预测器计数器，对于给定的计数器数组大小，可以获得更好的性能。我们还表明，多分支预测器的优势可以通过提供多个预测器和跟踪哪个预测器对当前分支更准确来结合。这些方法允许构建比之前已知的方法更精确的预测器。此外，使用局部和全局分支信息的组合预测器的预测精度达到</span>98.1%<span lang="zh-CN">，而之前已知的最精确方案的预测精度为</span>97.1%<span lang="zh-CN">。随着机器设计人员试图利用指令级并行性，而未预测分支将成为关键的性能瓶颈，这里介绍的方法应该会越来越有用</span>
+
+## 10.<span lang="zh-CN">未来工作建议</span>
+
+<span lang="zh-CN">有很多方法可以扩展这项研究，以找到更准确、成本更低的分支预测因子。首先，有大量参数，如尺寸、关联性和管道成本，在这里没有充分探讨。仔细探索这个空间可能会产生更好的预测。其次，可以添加其他信息源，例如分支目标是向前还是向后，以提高准确性。第三，通常稀疏的分支历史可能会被压缩，以减少所需的计数器数量。最后，具有概要文件支持的编译器可能能够减少或消除对分支预测器的需求，如下所述。例如，以前的工作表明，使用剖面信息来设置分支中可能采用的位，其精度接近双模方案。因此，对于以这种方式优化的代码，双模</span>\/gshare<span lang="zh-CN">方案中的双模预测器可能是不必要的。更精细的优化也可能消除对</span>gshare<span lang="zh-CN">预测器的需求。这可以通过更仔细地检查分支条件或更详细地分析典型的分支模式来实现。例如，具有相关条件的分支可以通过语义分析或更精细的分析来检测，这些分析可以动态检测分支相关性。然后，可以使用该信息复制或重组分支，以便更简单的分支预测方法可以利用相关性。此外，循环导致的分支模式可能会通过仔细展开来利用，该展开利用了从语义或更精细的分析中检测到的典型迭代计数 </span>
+</pre>
+</body>
+</html>
